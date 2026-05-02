@@ -1,60 +1,79 @@
-from flask import Flask, request
-import requests
 import os
+import requests
+from flask import Flask, request
 
 app = Flask(__name__)
 
-# Palitan mo to ng sarili mong tokens
-GEMINI_API_KEY = "AIzaSyBNrmxukG9okbPqEPoX08MpLWT6r9cX5R4"
-VERIFY_TOKEN = "kalyeusokbot"
-PAGE_ACCESS_TOKEN = "EAAbmQmT7UPwBRVZBGy40POECsi4NZAATyY8fozfaIubL6zcqH4DUDpCMZB0rUo10zNN2gGhR4vQTOOpu0bAWZADYb5ifOHwFokYRuMUhJ9ZAcEyzX64GKiKZCfLpIprQcM3je2mB9BVaBb7SCOnToI6EQiRpEZCLLygRPZCswfGpBbIyHFUgo9uZANZAYvibtB2dG2vZAYDKZC2k0AZDZD"
+PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN")
+VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-def ask_gemini(user_message):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+def kalyebot(prompt):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+
+    system_prompt = """Ikaw si Kalyebot, pinaka-maangas sa GC. Roast king ka.
+    Lahat ng reply mo may kasamang pang-aasar pero tropa vibes pa rin.
+    1 sentence lang lagi. Walang filter."""
+
+    full_prompt = f"{system_prompt}\n\nTropa: {prompt}\nKalyebot:"
 
     payload = {
         "contents": [{
-            "parts": [{"text": f"Ikaw ay helpful na kaibigan sa GC. Sumagot ka in Tagalog, casual, 1-2 sentences lang. Tanong: {user_message}"}]
+            "parts": [{"text": full_prompt}]
         }]
     }
 
-    response = requests.post(url, json=payload)
-    data = response.json()
-
     try:
-        return data['candidates'][0]['content']['parts'][0]['text']
+        response = requests.post(url, json=payload)
+        result = response.json()
+        return result['candidates'][0]['content']['parts'][0]['text']
     except:
-        return "Uy nag-error ako. Try mo ulit mamaya."
+        return "Nag-error ako tol, try mo ulit mamaya"
 
-def send_message(recipient_id, text):
+def send_message(recipient_id, message_text):
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
     payload = {
         "recipient": {"id": recipient_id},
-        "message": {"text": text}
+        "message": {"text": message_text}
     }
     requests.post(url, json=payload)
 
-@app.route('/webhook', methods=['GET', 'POST'])
-def webhook():
-    if request.method == 'GET':
-        if request.args.get('hub.verify_token') == VERIFY_TOKEN:
-            return request.args.get('hub.challenge')
-        return 'Invalid verify token'
+@app.route('/webhook', methods=['GET'])
+def verify():
+    if request.args.get('hub.verify_token') == VERIFY_TOKEN:
+        return request.args.get('hub.challenge')
+    return 'Invalid verify token'
 
-    if request.method == 'POST':
-        data = request.json
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.get_json()
+
+    if data['object'] == 'page':
         for entry in data['entry']:
-            for messaging in entry['messaging']:
-                if 'message' in messaging:
-                    sender_id = messaging['sender']['id']
-                    user_text = messaging['message'].get('text')
+            for messaging_event in entry['messaging']:
+                if messaging_event.get('message'):
+                    sender_id = messaging_event['sender']['id']
+                    user_text = messaging_event['message'].get('text')
 
                     if user_text:
-                        ai_reply = ask_gemini(user_text)
-                        send_message(sender_id, ai_reply)
+                        if '@bot' in user_text.lower():
+                            clean_text = user_text.lower().replace('@bot', '').strip()
+                            bot_reply = kalyebot(clean_text)
+                            send_message(sender_id, bot_reply)
 
-        return 'OK', 200
+    return 'ok', 200
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port)
+@app.route('/privacy')
+def privacy():
+    return """
+    <h1>Privacy Policy for Kalyebot</h1>
+    <p>Kalyebot is a Messenger chatbot for entertainment.</p>
+    <p><b>Data:</b> We only process messages with @bot. No data stored.</p>
+    <p><b>Third Party:</b> Uses Google Gemini API for AI responses.</p>
+    <p><b>Contact:</b> your-email@gmail.com</p>
+    <p>Last updated: May 2, 2026</p>
+    """
+
+@app.route('/')
+def home():
+    return 'Kalyebot is alive!'
